@@ -1,0 +1,75 @@
+[0;34m╔════════════════════════════════════════════════════════╗[0m
+[0;34m║   Sovereign Backend 통합 테스트 (40개 + 무관용 규칙)  ║[0m
+[0;34m╚════════════════════════════════════════════════════════╝[0m
+🚀 Starting server...
+🚀 Starting Sovereign Backend Server...
+✅ Server running on http://localhost:8080
+   Boot time: 54ms
+⏳ Waiting for server to start...
+[0;32m✅ Server is ready[0m
+
+
+[0;34m═══════════════════════════════════════════════════════[0m
+[0;34mGroup A: 시작 시퀀스 (R1: < 5초)[0m
+[0;34m═══════════════════════════════════════════════════════[0m
+
+Test 1: A1: Health Check 기본 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 2: A2: Health Check JSON 유효성 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 3: A3: 메트릭 초기화 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 4: A4: 상태 조회 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 5: A5: 전체 부팅 완료 ... [0;32m✅ PASS[0m (HTTP 200)
+
+[0;34m═══════════════════════════════════════════════════════[0m
+[0;34mGroup B: 행복 경로 (R2: < 100ms)[0m
+[0;34m═══════════════════════════════════════════════════════[0m
+
+Test 6: B1: GET 요청 성공 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 7: B2: POST 요청 성공 ... [0;32m✅ PASS[0m (HTTP 201)
+Test 8: B3: Keep-Alive 테스트 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 9: B4: 다중 GET 요청 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 10: B5: 데이터 반환 형식 ... [0;32m✅ PASS[0m (HTTP 200)
+
+[0;34m═══════════════════════════════════════════════════════[0m
+[0;34mGroup C: 에러 처리 (R3: 100% 정확)[0m
+[0;34m═══════════════════════════════════════════════════════[0m
+
+Test 11: C1: 400 Bad Request (Invalid JSON) ... [0;32m✅ PASS[0m (HTTP 400)
+Test 12: C2: 404 Not Found ... [0;32m✅ PASS[0m (HTTP 404)
+Test 13: C3: 405 Method Not Allowed ... [0;31m❌ FAIL[0m (expected 405, got 404)
+Test 14: C4: 413 Payload Too Large ... 
+🛑 Graceful shutdown initiated...
+✅ Server closed (3ms)
+
+📊 Final Metrics:
+{
+  "uptime": 736757,
+  "timestamp": "2026-03-05T13:17:48.716Z",
+  "latency": {
+    "samples": 14,
+    "average": "3.29",
+    "p50": "1.76",
+    "p95": "12.66",
+    "p99": "12.66",
+    "min": "0.35",
+    "max": "12.66",
+    "stdDev": "3.38"
+  },
+  "requests": {
+    "total": 6,
+    "perSecond": 0.008143797751497442,
+    "byMethod": {
+      "GET": 4,
+      "POST": 2
+    },
+    "byStatus": {
+      "200": 4,
+      "201": 1,
+      "400": 1
+    }
+  },
+  "errors": {
+    "total": 0,
+    "errorRate": "0.00%",
+    "byType": {}
+  }
+}

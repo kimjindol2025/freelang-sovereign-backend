@@ -1,0 +1,63 @@
+// =============================================================================
+// Backend Phase 4: Production Deployment - Module Integration
+// =============================================================================
+// Exports Kubernetes, Failover, and Observability components.
+//
+// Rules:
+//   R5: K8s deployment < 30s
+//   R6: Failover < 5s
+//   R7: Trace sampling > 1%
+//   R8: Log retention >= 30 days
+// =============================================================================
+
+import k8s_integration
+import failover_engine
+import observability
+
+// --- Public API: K8s Deployment (R5) ----------------------------------------
+
+pub fn create_k8s_engine(cluster: string, ns: string) -> DeploymentEngine {
+    return create_deployment_engine(cluster, ns)
+}
+
+pub fn deploy(engine: DeploymentEngine, spec: DeploymentSpec) -> DeploymentEngine {
+    return create_deployment(engine, spec)
+}
+
+pub fn update(engine: DeploymentEngine, name: string, image: string) -> DeploymentEngine {
+    return rolling_update(engine, name, image)
+}
+
+pub fn rollback(engine: DeploymentEngine, name: string) -> DeploymentEngine {
+    return rollback_deployment(engine, name)
+}
+
+// --- Public API: Failover (R6) ----------------------------------------------
+
+pub fn create_failover(regions: array) -> FailoverEngine {
+    return create_failover_engine(regions)
+}
+
+pub fn failover(engine: FailoverEngine, region: string, reason: string) -> FailoverEngine {
+    return trigger_failover(engine, region, reason)
+}
+
+// --- Public API: Observability (R7, R8) -------------------------------------
+
+pub fn create_obs() -> ObservabilityStack {
+    return create_observability_stack()
+}
+
+pub fn trace(stack: ObservabilityStack, op: string, svc: string) -> Trace {
+    return start_trace(stack, op, svc)
+}
+
+pub fn log(stack: ObservabilityStack, level: string, msg: string,
+            svc: string, trace_id: string) -> ObservabilityStack {
+    return log_entry(stack, level, msg, svc, trace_id)
+}
+
+pub fn metric(stack: ObservabilityStack, name: string, value: f32,
+               labels: array) -> ObservabilityStack {
+    return record_counter(stack, name, value, labels)
+}

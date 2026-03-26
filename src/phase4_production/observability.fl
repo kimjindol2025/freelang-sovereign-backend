@@ -1,0 +1,546 @@
+// =============================================================================
+// Backend Phase 4: Observability Stack (Tracing + Metrics + Logging)
+// =============================================================================
+// Full observability pipeline: distributed tracing, metrics collection,
+// structured logging, alerting, and SLO monitoring.
+//
+// Unforgiving Rule R7: Trace sampling > 1%
+// Unforgiving Rule R8: Log retention 30 days
+// =============================================================================
+
+// --- Tracing Types ----------------------------------------------------------
+
+struct Span {
+    trace_id: string,
+    span_id: string,
+    parent_span_id: string,
+    operation_name: string,
+    service_name: string,
+    start_time: i32,
+    end_time: i32,
+    duration_ms: f32,
+    status: string,             // "ok", "error", "timeout"
+    tags: array,                // array of Tag
+    logs: array,                // array of SpanLog
+    baggage: array              // context propagation
+}
+
+struct Tag {
+    key: string,
+    value: string
+}
+
+struct SpanLog {
+    timestamp: i32,
+    message: string,
+    level: string
+}
+
+struct Trace {
+    trace_id: string,
+    root_span: Span,
+    spans: array,
+    service_count: i32,
+    total_duration_ms: f32,
+    has_error: bool,
+    sampled: bool
+}
+
+struct TracingConfig {
+    sample_rate: f32,           // R7: must be > 0.01 (1%)
+    max_spans_per_trace: i32,
+    max_tag_length: i32,
+    propagation_format: string, // "w3c", "b3", "jaeger"
+    exporter: string,           // "jaeger", "zipkin", "otlp"
+    buffer_size: i32
+}
+
+struct TracingEngine {
+    config: TracingConfig,
+    active_traces: array,
+    completed_traces: array,
+    sampler: Sampler,
+    total_spans: i32,
+    total_traces: i32,
+    sampled_traces: i32,
+    error_traces: i32
+}
+
+struct Sampler {
+    strategy: string,           // "always", "never", "probability", "rate_limiting"
+    probability: f32,
+    rate_per_second: f32,
+    current_count: i32,
+    last_reset: i32
+}
+
+// --- Metrics Types ----------------------------------------------------------
+
+struct MetricPoint {
+    name: string,
+    metric_type: string,        // "counter", "gauge", "histogram", "summary"
+    value: f32,
+    timestamp: i32,
+    labels: array               // array of Tag
+}
+
+struct Histogram {
+    name: string,
+    buckets: array,             // bucket boundaries
+    counts: array,              // per-bucket counts
+    sum: f32,
+    count: i32,
+    labels: array
+}
+
+struct MetricsConfig {
+    scrape_interval_s: i32,
+    retention_days: i32,        // R8: must be >= 30
+    max_series: i32,
+    export_format: string       // "prometheus", "otlp", "statsd"
+}
+
+struct MetricsEngine {
+    config: MetricsConfig,
+    counters: array,            // array of MetricPoint (counter type)
+    gauges: array,
+    histograms: array,
+    total_points: i32,
+    oldest_point_time: i32,
+    newest_point_time: i32
+}
+
+// --- Logging Types ----------------------------------------------------------
+
+struct LogEntry {
+    timestamp: i32,
+    level: string,              // "DEBUG", "INFO", "WARN", "ERROR", "FATAL"
+    message: string,
+    service: string,
+    trace_id: string,
+    span_id: string,
+    fields: array,              // structured fields (array of Tag)
+    caller: string              // source file:line
+}
+
+struct LoggingConfig {
+    min_level: string,
+    retention_days: i32,        // R8: 30 days
+    max_size_mb: i32,
+    rotation_strategy: string,  // "daily", "size", "both"
+    format: string,             // "json", "text", "logfmt"
+    output: string              // "stdout", "file", "both"
+}
+
+struct LoggingEngine {
+    config: LoggingConfig,
+    buffer: array,              // buffered log entries
+    buffer_size: i32,
+    total_entries: i32,
+    entries_by_level: array,    // [debug, info, warn, error, fatal]
+    oldest_entry_time: i32,
+    newest_entry_time: i32
+}
+
+// --- SLO Monitoring ---------------------------------------------------------
+
+struct SLO {
+    name: string,
+    target: f32,                // e.g., 0.999 for 99.9%
+    window_days: i32,           // e.g., 30 days
+    metric_name: string,
+    threshold: f32,             // success threshold
+    current_value: f32,
+    error_budget_remaining: f32,
+    is_burning: bool            // burning error budget too fast
+}
+
+struct AlertRule {
+    name: string,
+    condition: string,          // metric condition
+    threshold: f32,
+    duration_s: i32,            // must be true for this long
+    severity: string,           // "critical", "warning", "info"
+    notification_channel: string,
+    last_fired: i32,
+    is_firing: bool,
+    silenced: bool
+}
+
+// --- Observability Stack ---------------------------------------------------
+
+struct ObservabilityStack {
+    tracing: TracingEngine,
+    metrics: MetricsEngine,
+    logging: LoggingEngine,
+    slos: array,                // array of SLO
+    alerts: array,              // array of AlertRule
+    correlation_enabled: bool    // correlate traces <-> logs <-> metrics
+}
+
+// --- Stack Creation --------------------------------------------------------
+
+fn create_observability_stack() -> ObservabilityStack {
+    let tracing_config = TracingConfig {
+        sample_rate: 0.05,      // 5% > R7 threshold of 1%
+        max_spans_per_trace: 100,
+        max_tag_length: 256,
+        propagation_format: "w3c",
+        exporter: "otlp",
+        buffer_size: 1000
+    }
+
+    let sampler = Sampler {
+        strategy: "probability",
+        probability: 0.05,
+        rate_per_second: 100.0,
+        current_count: 0,
+        last_reset: timestamp_now()
+    }
+
+    let tracing = TracingEngine {
+        config: tracing_config,
+        active_traces: [],
+        completed_traces: [],
+        sampler: sampler,
+        total_spans: 0,
+        total_traces: 0,
+        sampled_traces: 0,
+        error_traces: 0
+    }
+
+    let metrics_config = MetricsConfig {
+        scrape_interval_s: 15,
+        retention_days: 30,     // R8: exactly 30 days
+        max_series: 10000,
+        export_format: "prometheus"
+    }
+
+    let metrics = MetricsEngine {
+        config: metrics_config,
+        counters: [],
+        gauges: [],
+        histograms: [],
+        total_points: 0,
+        oldest_point_time: timestamp_now(),
+        newest_point_time: timestamp_now()
+    }
+
+    let logging_config = LoggingConfig {
+        min_level: "INFO",
+        retention_days: 30,     // R8: 30 days
+        max_size_mb: 1024,
+        rotation_strategy: "daily",
+        format: "json",
+        output: "both"
+    }
+
+    let logging = LoggingEngine {
+        config: logging_config,
+        buffer: [],
+        buffer_size: 0,
+        total_entries: 0,
+        entries_by_level: [0, 0, 0, 0, 0],
+        oldest_entry_time: timestamp_now(),
+        newest_entry_time: timestamp_now()
+    }
+
+    return ObservabilityStack {
+        tracing: tracing,
+        metrics: metrics,
+        logging: logging,
+        slos: [],
+        alerts: [],
+        correlation_enabled: true
+    }
+}
+
+// --- Tracing Operations ----------------------------------------------------
+
+fn start_trace(stack: ObservabilityStack, operation: string,
+                service: string) -> Trace {
+    let trace_id = generate_trace_id(stack.tracing.total_traces)
+    let span_id = generate_span_id(0)
+
+    let should_sample = decide_sample(stack.tracing.sampler)
+
+    let root_span = Span {
+        trace_id: trace_id,
+        span_id: span_id,
+        parent_span_id: "",
+        operation_name: operation,
+        service_name: service,
+        start_time: timestamp_now(),
+        end_time: 0,
+        duration_ms: 0.0,
+        status: "ok",
+        tags: [],
+        logs: [],
+        baggage: []
+    }
+
+    let trace = Trace {
+        trace_id: trace_id,
+        root_span: root_span,
+        spans: [root_span],
+        service_count: 1,
+        total_duration_ms: 0.0,
+        has_error: false,
+        sampled: should_sample
+    }
+
+    stack.tracing.total_traces = stack.tracing.total_traces + 1
+    stack.tracing.total_spans = stack.tracing.total_spans + 1
+    if should_sample {
+        stack.tracing.sampled_traces = stack.tracing.sampled_traces + 1
+        push(stack.tracing.active_traces, trace)
+    }
+
+    return trace
+}
+
+fn add_span(trace: Trace, operation: string, service: string,
+             parent_id: string) -> Trace {
+    let span_id = generate_span_id(length(trace.spans))
+
+    let span = Span {
+        trace_id: trace.trace_id,
+        span_id: span_id,
+        parent_span_id: parent_id,
+        operation_name: operation,
+        service_name: service,
+        start_time: timestamp_now(),
+        end_time: 0,
+        duration_ms: 0.0,
+        status: "ok",
+        tags: [],
+        logs: [],
+        baggage: []
+    }
+
+    push(trace.spans, span)
+    return trace
+}
+
+fn end_trace(stack: ObservabilityStack, trace: Trace) -> ObservabilityStack {
+    trace.root_span.end_time = timestamp_now()
+    trace.root_span.duration_ms = (trace.root_span.end_time - trace.root_span.start_time) * 1000.0
+    trace.total_duration_ms = trace.root_span.duration_ms
+
+    if trace.has_error {
+        stack.tracing.error_traces = stack.tracing.error_traces + 1
+    }
+
+    // Move from active to completed
+    push(stack.tracing.completed_traces, trace)
+
+    return stack
+}
+
+fn decide_sample(sampler: Sampler) -> bool {
+    if sampler.strategy == "always" { return true }
+    if sampler.strategy == "never" { return false }
+
+    // Probability sampling
+    sampler.current_count = sampler.current_count + 1
+    let hash = (sampler.current_count * 2654435761) % 10000
+    let threshold = sampler.probability * 10000.0
+    return hash < threshold
+}
+
+fn get_sample_rate(stack: ObservabilityStack) -> f32 {
+    if stack.tracing.total_traces == 0 { return 0.0 }
+    return stack.tracing.sampled_traces * 1.0 / stack.tracing.total_traces
+}
+
+fn generate_trace_id(seq: i32) -> string {
+    return "trace-" + to_string(seq) + "-" + to_string(timestamp_now())
+}
+
+fn generate_span_id(seq: i32) -> string {
+    return "span-" + to_string(seq)
+}
+
+// --- Metrics Operations ----------------------------------------------------
+
+fn record_counter(stack: ObservabilityStack, name: string, value: f32,
+                   labels: array) -> ObservabilityStack {
+    let point = MetricPoint {
+        name: name,
+        metric_type: "counter",
+        value: value,
+        timestamp: timestamp_now(),
+        labels: labels
+    }
+    push(stack.metrics.counters, point)
+    stack.metrics.total_points = stack.metrics.total_points + 1
+    stack.metrics.newest_point_time = timestamp_now()
+    return stack
+}
+
+fn record_gauge(stack: ObservabilityStack, name: string, value: f32,
+                 labels: array) -> ObservabilityStack {
+    let point = MetricPoint {
+        name: name,
+        metric_type: "gauge",
+        value: value,
+        timestamp: timestamp_now(),
+        labels: labels
+    }
+    push(stack.metrics.gauges, point)
+    stack.metrics.total_points = stack.metrics.total_points + 1
+    return stack
+}
+
+fn record_histogram(stack: ObservabilityStack, name: string,
+                     value: f32) -> ObservabilityStack {
+    // Find or create histogram
+    let found = false
+    let i = 0
+    while i < length(stack.metrics.histograms) {
+        if stack.metrics.histograms[i].name == name {
+            let h = stack.metrics.histograms[i]
+            h.sum = h.sum + value
+            h.count = h.count + 1
+            // Update bucket counts
+            let j = 0
+            while j < length(h.buckets) {
+                if value <= h.buckets[j] {
+                    h.counts[j] = h.counts[j] + 1
+                }
+                j = j + 1
+            }
+            stack.metrics.histograms[i] = h
+            found = true
+            break
+        }
+        i = i + 1
+    }
+
+    if !found {
+        let h = Histogram {
+            name: name,
+            buckets: [1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0],
+            counts: [0, 0, 0, 0, 0, 0, 0, 0, 0],
+            sum: value,
+            count: 1,
+            labels: []
+        }
+        push(stack.metrics.histograms, h)
+    }
+
+    stack.metrics.total_points = stack.metrics.total_points + 1
+    return stack
+}
+
+fn get_retention_days(stack: ObservabilityStack) -> i32 {
+    return stack.metrics.config.retention_days
+}
+
+// --- Logging Operations ----------------------------------------------------
+
+fn log_entry(stack: ObservabilityStack, level: string, message: string,
+              service: string, trace_id: string) -> ObservabilityStack {
+    let entry = LogEntry {
+        timestamp: timestamp_now(),
+        level: level,
+        message: message,
+        service: service,
+        trace_id: trace_id,
+        span_id: "",
+        fields: [],
+        caller: ""
+    }
+
+    push(stack.logging.buffer, entry)
+    stack.logging.buffer_size = stack.logging.buffer_size + 1
+    stack.logging.total_entries = stack.logging.total_entries + 1
+    stack.logging.newest_entry_time = timestamp_now()
+
+    // Update level counts
+    if level == "DEBUG" { stack.logging.entries_by_level[0] = stack.logging.entries_by_level[0] + 1 }
+    else if level == "INFO" { stack.logging.entries_by_level[1] = stack.logging.entries_by_level[1] + 1 }
+    else if level == "WARN" { stack.logging.entries_by_level[2] = stack.logging.entries_by_level[2] + 1 }
+    else if level == "ERROR" { stack.logging.entries_by_level[3] = stack.logging.entries_by_level[3] + 1 }
+    else if level == "FATAL" { stack.logging.entries_by_level[4] = stack.logging.entries_by_level[4] + 1 }
+
+    return stack
+}
+
+fn get_log_retention_days(stack: ObservabilityStack) -> i32 {
+    return stack.logging.config.retention_days
+}
+
+// --- SLO Operations --------------------------------------------------------
+
+fn add_slo(stack: ObservabilityStack, name: string, target: f32,
+            window: i32) -> ObservabilityStack {
+    let slo = SLO {
+        name: name,
+        target: target,
+        window_days: window,
+        metric_name: "",
+        threshold: 0.0,
+        current_value: 1.0,
+        error_budget_remaining: 1.0 - target,
+        is_burning: false
+    }
+    push(stack.slos, slo)
+    return stack
+}
+
+fn update_slo(stack: ObservabilityStack, slo_name: string,
+               success_count: i32, total_count: i32) -> ObservabilityStack {
+    let i = 0
+    while i < length(stack.slos) {
+        if stack.slos[i].name == slo_name {
+            let slo = stack.slos[i]
+            if total_count > 0 {
+                slo.current_value = success_count * 1.0 / total_count
+            }
+            slo.error_budget_remaining = slo.target - (1.0 - slo.current_value)
+            slo.is_burning = slo.error_budget_remaining < 0.0
+            stack.slos[i] = slo
+            break
+        }
+        i = i + 1
+    }
+    return stack
+}
+
+// --- Alert Operations ------------------------------------------------------
+
+fn add_alert(stack: ObservabilityStack, name: string, threshold: f32,
+              severity: string) -> ObservabilityStack {
+    let alert = AlertRule {
+        name: name,
+        condition: "",
+        threshold: threshold,
+        duration_s: 60,
+        severity: severity,
+        notification_channel: "default",
+        last_fired: 0,
+        is_firing: false,
+        silenced: false
+    }
+    push(stack.alerts, alert)
+    return stack
+}
+
+fn check_alerts(stack: ObservabilityStack) -> array {
+    let firing = []
+    let i = 0
+    while i < length(stack.alerts) {
+        if stack.alerts[i].is_firing && !stack.alerts[i].silenced {
+            push(firing, stack.alerts[i])
+        }
+        i = i + 1
+    }
+    return firing
+}
+
+// --- Utility ---------------------------------------------------------------
+
+fn timestamp_now() -> i32 {
+    return 1709683200
+}

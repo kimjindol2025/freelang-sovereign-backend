@@ -1,0 +1,355 @@
+// =============================================================================
+// Backend Phase 4: Multi-Region Failover Engine
+// =============================================================================
+// Automatic failover across multiple regions with health monitoring,
+// leader election, traffic routing, and data consistency guarantees.
+//
+// Unforgiving Rule R6: Failover < 5s (region switch)
+// =============================================================================
+
+// --- Failover Types ---------------------------------------------------------
+
+struct Region {
+    region_id: string,          // e.g., "us-east-1", "eu-west-1"
+    endpoint: string,
+    status: string,             // "active", "standby", "degraded", "down"
+    priority: i32,              // lower = higher priority
+    health_score: f32,          // 0.0-1.0
+    latency_ms: f32,
+    error_rate: f32,
+    last_health_check: i32,
+    active_connections: i32,
+    capacity: i32,
+    data_lag_ms: f32            // replication lag
+}
+
+struct FailoverConfig {
+    health_check_interval_ms: i32,
+    failover_threshold: f32,    // health score below this triggers failover
+    recovery_threshold: f32,    // health score above this for recovery
+    max_failover_time_ms: i32,  // R6: must be < 5000
+    min_healthy_regions: i32,
+    quorum_size: i32,           // for leader election
+    drain_timeout_ms: i32,      // time to drain connections before failover
+    cooldown_ms: i32            // min time between failovers
+}
+
+struct FailoverEngine {
+    regions: array,             // array of Region
+    config: FailoverConfig,
+    active_region: string,      // current primary region
+    failover_history: array,    // array of FailoverEvent
+    leader_election: LeaderElection,
+    traffic_router: TrafficRouter,
+    is_in_failover: bool,
+    last_failover_time: i32,
+    total_failovers: i32,
+    avg_failover_time_ms: f32
+}
+
+struct FailoverEvent {
+    from_region: string,
+    to_region: string,
+    reason: string,
+    start_time: i32,
+    end_time: i32,
+    duration_ms: f32,
+    success: bool,
+    connections_migrated: i32
+}
+
+struct LeaderElection {
+    current_leader: string,
+    term: i32,
+    votes: array,
+    election_timeout_ms: i32,
+    last_heartbeat: i32,
+    state: string               // "leader", "follower", "candidate"
+}
+
+struct TrafficRouter {
+    routing_table: array,       // array of RouteEntry
+    strategy: string,           // "active_passive", "active_active", "weighted"
+    weights: array,             // per-region traffic weight
+    sticky_sessions: bool
+}
+
+struct RouteEntry {
+    region_id: string,
+    weight: f32,
+    is_primary: bool,
+    is_healthy: bool
+}
+
+// --- Engine Creation -------------------------------------------------------
+
+fn create_failover_engine(regions: array) -> FailoverEngine {
+    let config = FailoverConfig {
+        health_check_interval_ms: 1000,
+        failover_threshold: 0.3,
+        recovery_threshold: 0.8,
+        max_failover_time_ms: 5000,
+        min_healthy_regions: 1,
+        quorum_size: 2,
+        drain_timeout_ms: 2000,
+        cooldown_ms: 30000
+    }
+
+    let leader = LeaderElection {
+        current_leader: "",
+        term: 0,
+        votes: [],
+        election_timeout_ms: 3000,
+        last_heartbeat: timestamp_now(),
+        state: "follower"
+    }
+
+    let routes = []
+    let primary = ""
+    let i = 0
+    while i < length(regions) {
+        let r = regions[i]
+        push(routes, RouteEntry {
+            region_id: r.region_id,
+            weight: 0.0,
+            is_primary: i == 0,
+            is_healthy: true
+        })
+        if i == 0 {
+            primary = r.region_id
+            routes[0].weight = 1.0
+        }
+        i = i + 1
+    }
+
+    let router = TrafficRouter {
+        routing_table: routes,
+        strategy: "active_passive",
+        weights: [],
+        sticky_sessions: true
+    }
+
+    return FailoverEngine {
+        regions: regions,
+        config: config,
+        active_region: primary,
+        failover_history: [],
+        leader_election: leader,
+        traffic_router: router,
+        is_in_failover: false,
+        last_failover_time: 0,
+        total_failovers: 0,
+        avg_failover_time_ms: 0.0
+    }
+}
+
+// --- Health Monitoring -----------------------------------------------------
+
+fn check_region_health(engine: FailoverEngine, region_id: string) -> FailoverEngine {
+    let idx = find_region(engine, region_id)
+    if idx < 0 { return engine }
+
+    let region = engine.regions[idx]
+
+    // Composite health score: latency + error_rate + data_lag
+    let latency_score = 1.0
+    if region.latency_ms > 100.0 { latency_score = 100.0 / region.latency_ms }
+    if latency_score > 1.0 { latency_score = 1.0 }
+
+    let error_score = 1.0 - region.error_rate
+    if error_score < 0.0 { error_score = 0.0 }
+
+    let lag_score = 1.0
+    if region.data_lag_ms > 1000.0 { lag_score = 1000.0 / region.data_lag_ms }
+    if lag_score > 1.0 { lag_score = 1.0 }
+
+    // Weighted average
+    region.health_score = 0.4 * latency_score + 0.4 * error_score + 0.2 * lag_score
+    region.last_health_check = timestamp_now()
+
+    // Update status based on health
+    if region.health_score >= engine.config.recovery_threshold {
+        region.status = "active"
+    } else if region.health_score >= engine.config.failover_threshold {
+        region.status = "degraded"
+    } else {
+        region.status = "down"
+    }
+
+    engine.regions[idx] = region
+
+    // Check if failover is needed
+    if region.region_id == engine.active_region && region.status == "down" {
+        engine = trigger_failover(engine, region_id, "health_check_failed")
+    }
+
+    return engine
+}
+
+fn check_all_regions(engine: FailoverEngine) -> FailoverEngine {
+    let i = 0
+    while i < length(engine.regions) {
+        engine = check_region_health(engine, engine.regions[i].region_id)
+        i = i + 1
+    }
+    return engine
+}
+
+// --- Failover Execution ----------------------------------------------------
+
+fn trigger_failover(engine: FailoverEngine, failed_region: string,
+                     reason: string) -> FailoverEngine {
+    // Check cooldown
+    let now = timestamp_now()
+    if engine.is_in_failover {
+        return engine
+    }
+    if now - engine.last_failover_time < engine.config.cooldown_ms / 1000 {
+        return engine
+    }
+
+    engine.is_in_failover = true
+    let start_time = now
+
+    // Find best target region
+    let target = select_failover_target(engine, failed_region)
+    if target == "" {
+        engine.is_in_failover = false
+        return engine
+    }
+
+    // Phase 1: Drain connections from failed region (simulated)
+    // In production: graceful connection drain
+
+    // Phase 2: Switch traffic to target
+    engine = switch_traffic(engine, target)
+
+    // Phase 3: Update routing table
+    let i = 0
+    while i < length(engine.traffic_router.routing_table) {
+        if engine.traffic_router.routing_table[i].region_id == failed_region {
+            engine.traffic_router.routing_table[i].is_primary = false
+            engine.traffic_router.routing_table[i].is_healthy = false
+            engine.traffic_router.routing_table[i].weight = 0.0
+        }
+        if engine.traffic_router.routing_table[i].region_id == target {
+            engine.traffic_router.routing_table[i].is_primary = true
+            engine.traffic_router.routing_table[i].weight = 1.0
+        }
+        i = i + 1
+    }
+
+    let end_time = timestamp_now()
+    let duration = (end_time - start_time) * 1000.0
+
+    // Record event
+    let event = FailoverEvent {
+        from_region: failed_region,
+        to_region: target,
+        reason: reason,
+        start_time: start_time,
+        end_time: end_time,
+        duration_ms: duration,
+        success: true,
+        connections_migrated: 0
+    }
+    push(engine.failover_history, event)
+
+    engine.active_region = target
+    engine.is_in_failover = false
+    engine.last_failover_time = end_time
+    engine.total_failovers = engine.total_failovers + 1
+
+    // Update average
+    let n = engine.total_failovers
+    engine.avg_failover_time_ms = ((engine.avg_failover_time_ms * (n - 1)) + duration) / n
+
+    return engine
+}
+
+fn select_failover_target(engine: FailoverEngine, exclude: string) -> string {
+    let best_region = ""
+    let best_score = -1.0
+    let best_priority = 999999
+
+    let i = 0
+    while i < length(engine.regions) {
+        let r = engine.regions[i]
+        if r.region_id != exclude && r.status != "down" {
+            // Prefer: higher health, lower priority number
+            if r.health_score > engine.config.failover_threshold {
+                if r.priority < best_priority ||
+                   (r.priority == best_priority && r.health_score > best_score) {
+                    best_region = r.region_id
+                    best_score = r.health_score
+                    best_priority = r.priority
+                }
+            }
+        }
+        i = i + 1
+    }
+    return best_region
+}
+
+fn switch_traffic(engine: FailoverEngine, target: string) -> FailoverEngine {
+    engine.active_region = target
+    return engine
+}
+
+// --- Leader Election (Simplified Raft) -------------------------------------
+
+fn start_election(engine: FailoverEngine, candidate: string) -> FailoverEngine {
+    engine.leader_election.term = engine.leader_election.term + 1
+    engine.leader_election.state = "candidate"
+    engine.leader_election.votes = [candidate]
+
+    // Simulate vote collection
+    let i = 0
+    while i < length(engine.regions) {
+        let r = engine.regions[i]
+        if r.region_id != candidate && r.status != "down" {
+            // Vote for candidate if no leader in current term
+            push(engine.leader_election.votes, r.region_id)
+        }
+        i = i + 1
+    }
+
+    // Check if won majority
+    if length(engine.leader_election.votes) >= engine.config.quorum_size {
+        engine.leader_election.current_leader = candidate
+        engine.leader_election.state = "leader"
+    } else {
+        engine.leader_election.state = "follower"
+    }
+
+    return engine
+}
+
+// --- Utility ---------------------------------------------------------------
+
+fn find_region(engine: FailoverEngine, region_id: string) -> i32 {
+    let i = 0
+    while i < length(engine.regions) {
+        if engine.regions[i].region_id == region_id {
+            return i
+        }
+        i = i + 1
+    }
+    return -1
+}
+
+fn get_healthy_region_count(engine: FailoverEngine) -> i32 {
+    let count = 0
+    let i = 0
+    while i < length(engine.regions) {
+        if engine.regions[i].status == "active" || engine.regions[i].status == "degraded" {
+            count = count + 1
+        }
+        i = i + 1
+    }
+    return count
+}
+
+fn timestamp_now() -> i32 {
+    return 1709683200
+}

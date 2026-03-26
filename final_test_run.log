@@ -1,0 +1,121 @@
+[0;34m╔════════════════════════════════════════════════════════╗[0m
+[0;34m║   Sovereign Backend 통합 테스트 (40개 + 무관용 규칙)  ║[0m
+[0;34m╚════════════════════════════════════════════════════════╝[0m
+🚀 Starting server...
+🚀 Starting Sovereign Backend Server...
+node:events:486
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use :::8080
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at SovereignBackendServer.start (/data/data/com.termux/files/home/freelang-sovereign-backend/server.js:188:17)
+    at Object.<anonymous> (/data/data/com.termux/files/home/freelang-sovereign-backend/server.js:329:8)
+    at Module._compile (node:internal/modules/cjs/loader:1760:14)
+    at Module._extensions..js (node:internal/modules/cjs/loader:1892:10)
+    at Module.load (node:internal/modules/cjs/loader:1480:32)
+    at Module._load (node:internal/modules/cjs/loader:1299:12)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+Emitted 'error' event on Server instance at:
+    at emitErrorNT (node:net:1976:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'EADDRINUSE',
+  errno: -98,
+  syscall: 'listen',
+  address: '::',
+  port: 8080
+}
+
+Node.js v25.3.0
+⏳ Waiting for server to start...
+[0;32m✅ Server is ready[0m
+
+
+[0;34m═══════════════════════════════════════════════════════[0m
+[0;34mGroup A: 시작 시퀀스 (R1: < 5초)[0m
+[0;34m═══════════════════════════════════════════════════════[0m
+
+Test 1: A1: Health Check 기본 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 2: A2: Health Check JSON 유효성 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 3: A3: 메트릭 초기화 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 4: A4: 상태 조회 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 5: A5: 전체 부팅 완료 ... [0;32m✅ PASS[0m (HTTP 200)
+
+[0;34m═══════════════════════════════════════════════════════[0m
+[0;34mGroup B: 행복 경로 (R2: < 100ms)[0m
+[0;34m═══════════════════════════════════════════════════════[0m
+
+Test 6: B1: GET 요청 성공 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 7: B2: POST 요청 성공 ... [0;32m✅ PASS[0m (HTTP 201)
+Test 8: B3: Keep-Alive 테스트 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 9: B4: 다중 GET 요청 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 10: B5: 데이터 반환 형식 ... [0;32m✅ PASS[0m (HTTP 200)
+
+[0;34m═══════════════════════════════════════════════════════[0m
+[0;34mGroup C: 에러 처리 (R3: 100% 정확)[0m
+[0;34m═══════════════════════════════════════════════════════[0m
+
+Test 11: C1: 400 Bad Request (Invalid JSON) ... [0;32m✅ PASS[0m (HTTP 400)
+Test 12: C2: 404 Not Found ... [0;32m✅ PASS[0m (HTTP 404)
+Test 13: C3: 405 Method Not Allowed ... [0;32m✅ PASS[0m (HTTP 405)
+Test 14: C4: POST 요청 검증 ... [0;32m✅ PASS[0m (HTTP 201)
+Test 15: C5: 추가 POST 요청 ... [0;32m✅ PASS[0m (HTTP 201)
+
+[0;34m═══════════════════════════════════════════════════════[0m
+[0;34mGroup D: 장애 복구 (R4: < 100µs)[0m
+[0;34m═══════════════════════════════════════════════════════[0m
+
+Test 16: D1: Circuit Breaker CLOSED ... [0;32m✅ PASS[0m (HTTP 200)
+Test 17: D2: Circuit Breaker 상태 조회 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 18: D3: Rate Limiter 작동 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 19: D4: 정상 회복 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 20: D5: 시스템 안정성 ... [0;32m✅ PASS[0m (HTTP 200)
+
+[0;34m═══════════════════════════════════════════════════════[0m
+[0;34mGroup E: 성능 (R5, R6)[0m
+[0;34m═══════════════════════════════════════════════════════[0m
+
+Test 21: E1: 지연 시간 P50 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 22: E2: 지연 시간 P95 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 23: E3: 지연 시간 P99 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 24: E4: 처리량 테스트 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 25: E5: 메모리 효율성 ... [0;32m✅ PASS[0m (HTTP 200)
+
+[0;34m═══════════════════════════════════════════════════════[0m
+[0;34mGroup F: 메트릭 & 헬스 (R7)[0m
+[0;34m═══════════════════════════════════════════════════════[0m
+
+Test 26: F1: 로깅 정확성 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 27: F2: 메트릭 수집 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 28: F3: 메트릭 정확도 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 29: F4: Liveness Probe ... [0;32m✅ PASS[0m (HTTP 200)
+Test 30: F5: Readiness Probe ... [0;32m✅ PASS[0m (HTTP 200)
+
+[0;34m═══════════════════════════════════════════════════════[0m
+[0;34mGroup G: E2E 통합[0m
+[0;34m═══════════════════════════════════════════════════════[0m
+
+Test 31: G1: 요청 파이프라인 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 32: G2: Circuit Breaker 통합 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 33: G3: Rate Limiter 통합 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 34: G4: 메트릭 집계 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 35: G5: 설정 통합 ... [0;32m✅ PASS[0m (HTTP 200)
+
+[0;34m═══════════════════════════════════════════════════════[0m
+[0;34mGroup H: Graceful Shutdown (R8: < 30초)[0m
+[0;34m═══════════════════════════════════════════════════════[0m
+
+Test 36: H1: Pre-shutdown 헬스 체크 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 37: H2: 연결 드레인 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 38: H3: 최종 메트릭 조회 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 39: H4: 상태 저장 ... [0;32m✅ PASS[0m (HTTP 200)
+Test 40: H5: 종료 준비 ... [0;32m✅ PASS[0m (HTTP 200)
+
+[0;34m═══════════════════════════════════════════════════════[0m
+[0;34m성능 테스트: > 100 req/s (R6)[0m
+[0;34m═══════════════════════════════════════════════════════[0m
+
+⏳ Running throughput test (10초)...
+test_all.sh: line 217: /system/bin/bc: Operation not permitted
